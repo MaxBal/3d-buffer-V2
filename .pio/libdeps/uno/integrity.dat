@@ -1,0 +1,5 @@
+gyverlibs/GyverOLED@^1.6.3
+gyverlibs/GyverButton@^3.8
+gyverlibs/GyverEncoder@^4.10
+gyverlibs/GyverStepper@^2.7
+gewisser/GyverOLEDMenu@^0.3.1
