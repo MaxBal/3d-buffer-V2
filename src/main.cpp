@@ -42,5 +42,12 @@ void setup() {
 
 void loop() {
   menu.addItem("Extrude");
-
+  menu.addItem("Retract");
+  menu.addItem("Buffer Amount");
+  menu.addItem("Setup steps per mm");
+  menu.addItem("Microstep Resolution"); 
+  menu.addItem("Select Driver");
+  menu.addItem("Stepper Setup");
+  menu.addItem("Save Preset");
+  menu.addItem("Select Preset");
 }
