@@ -389,9 +389,9 @@ void init_main_menu(Settings* settings)
 
   main_menu.addItem(PSTR("Stepper Settings")); //6
   main_menu.addItem(PSTR("Save Preset"));     //7
-  char* test_str = "Ttest text";
-  main_menu.addItem(test_str);
-  //main_menu.addItem(PSTR("Select Preset"));  //8
+  //char* test_str = "Ttest text";
+  //main_menu.addItem(test_str);
+  main_menu.addItem(PSTR("Select Preset"));  //8
   
   main_menu.showMenu(true);
 }
