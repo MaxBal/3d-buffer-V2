@@ -101,7 +101,7 @@
 #define EEPROM_FIRST_START   2  // предполагать что EEPROM ещё не проинициилизированная для работы кода
 #define EEPROM_AUTO_START    3  // перед каждым запуском условно проверять состояние инициилизации EEPROM (не сработает если ранее другие программы/прошивки использовали EEPROM в своих целях)
 
-#define EEPROM_MODE EEPROM_AUTO_START //принцип запуска EEPROM
+#define EEPROM_MODE EEPROM_FIRST_START //принцип запуска EEPROM
 
 
 // boolean isTurn();						// возвращает true при любом повороте, сама сбрасывается в false
@@ -204,8 +204,9 @@ OledMenu<5, GyverOLED<SSD1306_128x64, OLED_BUFFER>> stepper_menu(&oled);
 GStepper<STEPPER2WIRE> Motor1(steps, step, dirrr, en);
 
 
-// byte custom_mem[sizeof(OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>>)];
 // #include <new.h>
+// byte custom_mem[sizeof(OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>>)];
+
 // OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>>* main_menu_p =
 // new (custom_mem) OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>>(&oled);
 
@@ -221,7 +222,7 @@ StepperSettings& previousStepperSettings(previousSettings.stepperSettings);
 int currentExtrude = 0;
 unsigned long prevSensMillis = 0;
 
-bool isTurnOnSensor = false;
+bool isTurnOnSensor  = false;
 bool settingsChanged = false;
 int lastEEEPROM_elem = 0;
 int currEEEPROM_elem = 0;
@@ -368,7 +369,8 @@ void cbStepperSettings(const int index, const void* val, const byte valType)
 //-----------------EEPROM_овские недоноски-----------------------------------
 void cbSavePreset(const int index, const void* val, const byte valType)
 {
-
+  EEPROM.put<Settings>(lastEEEPROM_elem, currentSettings);
+  ++lastEEEPROM_elem;
 }
 
 void cbSelectPreset(const int index, const void* val, const byte valType)
@@ -409,19 +411,32 @@ void cbSpeed(const int index, const void* val, const byte valType)
 
 inline void customLeftPadding(const int& item_index)
 {
+  #ifdef CUSTOM_MENU_LEFT_OFFSET
+  oled.setCursorXY(CUSTOM_MENU_LEFT_OFFSET, item_index * MENU_SELECTED_H + MENU_ITEM_PADDING_TOP);
+  #else
   oled.setCursorXY(MENU_PARAMS_LEFT_OFFSET, item_index);
+  #endif
 }
 
-void prMicrostepResolution(const int index, const void* val, const byte valType)
+bool prExtrudeOrRetract(const int index, const void* val, const byte valType)
+{
+  oled.setCursorXY(MENU_PARAMS_LEFT_OFFSET + 8, index * MENU_SELECTED_H + MENU_ITEM_PADDING_TOP);
+  oled.print(*static_cast<const int*>(val));
+}
+
+
+bool prMicrostepResolution(const int index, const void* val, const byte valType)
 {
   customLeftPadding(index);
   oled.print(GetResolutionStr(currentSettings.getMicrostepResolution()));
+  return true;
 }
 
-void prSelectDriver(const int index, const void* val, const byte valType)
+bool prSelectDriver(const int index, const void* val, const byte valType)
 {
   customLeftPadding(index);
   oled.print(GetDriverStr(currentSettings.getDriverType()));
+  return true;
 }
 
 //menu func
@@ -471,17 +486,9 @@ void init_EEPROM()
   #if EEPROM_MODE == EEPROM_REGULAR_START
   lastEEEPROM_elem = EEPROM.get<int>((EEPROM.begin() + DEAD_EEPROM_CELL_OFFSET), lastEEEPROM_elem);
 
-  #elif EEPROM_MODE == EEPROM_AUTO_START
-  uint64_t tmp;
-  EEPROM.get<uint64_t>((EEPROM.begin() + DEAD_EEPROM_CELL_OFFSET), tmp);
-  if(tmp == 0xFFFFFFFFFFFFFFFF)
-    for(int i = EEPROM.begin()+ DEAD_EEPROM_CELL_OFFSET; i < EEPROM_OFFEST_BYTE_FOR_NUMERATION_SAVES; ++i)
-      EEPROM.update(i,0);
-  lastEEEPROM_elem = EEPROM.get<int>((EEPROM.begin() + DEAD_EEPROM_CELL_OFFSET), lastEEEPROM_elem);
-
-  #elif EEPROM_MODE == EEPROM_FIRST_START
+  #elif EEPROM_MODE == EEPROM_FIRST_START || EEPROM_MODE == EEPROM_AUTO_START
   for(int i = EEPROM.begin()+ DEAD_EEPROM_CELL_OFFSET; i < EEPROM_OFFEST_BYTE_FOR_NUMERATION_SAVES; ++i)
-    EEPROM.update(i,0);
+    EEPROM.update(i,0); //в теории благодаря тому что это update не должно тратить циклы перезаписи если значения и так уже нулевые
   lastEEEPROM_elem = EEPROM.get<int>((EEPROM.begin() + DEAD_EEPROM_CELL_OFFSET), lastEEEPROM_elem);
   #endif
 }
