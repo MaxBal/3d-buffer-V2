@@ -36,7 +36,6 @@
 #define EEPROM_SAVE_PRESET_MIN 0
 #define EEPROM_SAVE_PRESET_MAX (((1024 - EEPROM_OFFEST_BYTE_FOR_NUMERATION_SAVES) / sizeof(Settings)) - 1)
 
-
 //-------------------------- <Stepper Menu> --------------------------------------
 
 #define STEP_ENABLE_MOD_DEFAULT_VALUE false
@@ -58,11 +57,16 @@
 
 //------------------------------ <Основные настройки> ----------------------------------
 
+#define TIME_BETWEEN_SENSORE_USES  500 //по умолчанию 500мс
 #define SENSOR_PIN 5
 #define CLK 2
 #define DT 3
 #define SW 4
 #define SMOOTH_ALGORITHM
+
+//#define MENU_PARAMS_LEFT_OFFSET 64
+#define CUSTOM_MENU_LEFT_OFFSET 64
+#define DEAD_EEPROM_CELL_OFFSET 0
 
 #include <Arduino.h>
 #include <GyverStepper.h>
@@ -70,6 +74,7 @@
 #include "GyverButton.h"
 #include <GyverOLED.h>
 #include "GyverOLEDMenu.h"
+#include <EEPROM.h>
 
 
 // #define ENC_DEBOUNCE 80         // установка времени антидребезга (по умолчанию 80 мс)
@@ -92,16 +97,11 @@
 #define en 7
 
 
-GButton sensor(SENSOR_PIN);
-Encoder enc1(CLK, DT, SW);
-GyverOLED<SSD1306_128x64, OLED_BUFFER> oled(0x3C);
-OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>> main_menu(&oled);
-//OledMenu<5, GyverOLED<SSH1106_128x64, OLED_BUFFER>> menu_stepper(&oled);
-GStepper<STEPPER2WIRE> Motor1(steps, step, dirrr, en);
+#define EEPROM_REGULAR_START 1  // предполагать что EEPROM проинициилизированная
+#define EEPROM_FIRST_START   2  // предполагать что EEPROM ещё не проинициилизированная для работы кода
+#define EEPROM_AUTO_START    3  // перед каждым запуском условно проверять состояние инициилизации EEPROM (не сработает если ранее другие программы/прошивки использовали EEPROM в своих целях)
 
-
-bool isTurnOnSensor = false;
-bool settingsChanged = false;
+#define EEPROM_MODE EEPROM_AUTO_START //принцип запуска EEPROM
 
 
 // boolean isTurn();						// возвращает true при любом повороте, сама сбрасывается в false
@@ -125,6 +125,7 @@ bool settingsChanged = false;
 
 enum class MicrostepResolution;
 enum class DriverType;
+enum class MenuType;
 
 struct StepperSettings
 {
@@ -133,7 +134,6 @@ struct StepperSettings
   int16_t speed;
   int16_t acceleration;
 } ;
-
 struct Settings
 {
   int16_t buff_amount;
@@ -154,12 +154,6 @@ struct Settings
   {this->driver_type = static_cast<int>(driver_type);}
 
 } ;
-
-Settings currentSettings;
-StepperSettings& currentStepperSettings(currentSettings.stepperSettings);
-
-//my_menu.addItem(PSTR("Setup steps per mm"));
-
 
 enum class MicrostepResolution
 {
@@ -191,6 +185,49 @@ enum class DriverType
   TMC5161,
   COUNT //всегда последний элемент
 };
+
+enum class MenuType
+{
+  None,
+  MainMenu,
+  StepperMenu,
+  SaveSelectionCustomMenu,
+  COUNT //всегда последний элемент
+};
+
+
+GButton sensor(SENSOR_PIN);
+Encoder enc1(CLK, DT, SW);
+GyverOLED<SSD1306_128x64, OLED_BUFFER> oled(0x3C);
+OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>> main_menu(&oled);
+OledMenu<5, GyverOLED<SSD1306_128x64, OLED_BUFFER>> stepper_menu(&oled);
+GStepper<STEPPER2WIRE> Motor1(steps, step, dirrr, en);
+
+
+// byte custom_mem[sizeof(OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>>)];
+// #include <new.h>
+// OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>>* main_menu_p =
+// new (custom_mem) OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>>(&oled);
+
+// OledMenu<5, GyverOLED<SSD1306_128x64, OLED_BUFFER>>* stepper_menu_p =
+// new (custom_mem) OledMenu<5, GyverOLED<SSD1306_128x64, OLED_BUFFER>>(&oled);
+
+Settings currentSettings;
+StepperSettings& currentStepperSettings(currentSettings.stepperSettings);
+
+Settings previousSettings;
+StepperSettings& previousStepperSettings(previousSettings.stepperSettings);
+
+int currentExtrude = 0;
+unsigned long prevSensMillis = 0;
+
+bool isTurnOnSensor = false;
+bool settingsChanged = false;
+int lastEEEPROM_elem = 0;
+int currEEEPROM_elem = 0;
+
+MenuType currentMenuType = MenuType::None;
+
 
 MicrostepResolution DriverMaxResolution(const DriverType& driver)
 {
@@ -277,8 +314,8 @@ inline void Extrude(bool isReverse = false)
   //типо сам настраиваешь, но умножение на дробный шаг автоматическое (можно поменять)
   Motor1.setTarget(
     currentStepperSettings.step_per_mm * 
-  currentSettings.buff_amount *
-   GetResolution( max(currentSettings.getMicrostepResolution(), 
+    currentSettings.buff_amount *
+    GetResolution( max(currentSettings.getMicrostepResolution(), 
                       DriverMaxResolution(currentSettings.getDriverType())) ) //получаем enum с помощью статик каста и потом получаем правильное значение
    , RELATIVE);
 }
@@ -286,20 +323,25 @@ inline void Extrude(bool isReverse = false)
 //----------------main_menu callbacks---------------------------
 void cbChangeSensorState(const int index, const void* val, const byte valType)
 {
-  //if(index == 0) //ненужно потому что пишу их непосредственно перед каждым элементом меню
-  //ничего не нужно (по идее), оно просто меняет значение переменной которое я использую в проверках
 }
 
-void cbExtrude(const int index, const void* val, const byte valType)
+void cbExtrudeOrRetract(const int index, const void* val, const byte valType)
 {
+  if(currentExtrude < 0)
+    Motor1.reverse(true);
+  else
+    Motor1.reverse(false);
+  
+  currentExtrude = abs(currentExtrude);
   //поменять на меню с крутилкой
-  Extrude();
+  Motor1.setTarget(
+    currentStepperSettings.step_per_mm * 
+    currentExtrude *
+    GetResolution(max(
+      currentSettings.getMicrostepResolution(), 
+      DriverMaxResolution(currentSettings.getDriverType()) ) ) //получаем enum с помощью статик каста и потом получаем правильное значение
+   , RELATIVE);
 }
-
-// void cbRetract(const int index, const void* val, const byte valType)
-// {
-//   Extrude(true);
-// }
 
 void cbBufferAmount(const int index, const void* val, const byte valType)
 {
@@ -308,23 +350,25 @@ void cbBufferAmount(const int index, const void* val, const byte valType)
 
 void cbMicrostepResolution(const int index, const void* val, const byte valType)
 {
-   settingsChanged = true;
+  settingsChanged = true;
 }
 
 void cbSelectDriver(const int index, const void* val, const byte valType)
 {
-
+  settingsChanged = true;
 }
 
 void cbStepperSettings(const int index, const void* val, const byte valType)
 {
-
+  currentMenuType = MenuType::StepperMenu;
+  main_menu.showMenu(false);
+  stepper_menu.showMenu(true);
 }
 
 //-----------------EEPROM_овские недоноски-----------------------------------
 void cbSavePreset(const int index, const void* val, const byte valType)
 {
-  //работа с EEPROM
+
 }
 
 void cbSelectPreset(const int index, const void* val, const byte valType)
@@ -336,7 +380,9 @@ void cbSelectPreset(const int index, const void* val, const byte valType)
 
 void cbBACK(const int index, const void* val, const byte valType)
 {
-
+  currentMenuType = MenuType::MainMenu;
+  stepper_menu.showMenu(false);
+  main_menu.showMenu(true);
 }
 
 void cbEnableMod(const int index, const void* val, const byte valType)
@@ -354,96 +400,184 @@ void cbSpeed(const int index, const void* val, const byte valType)
   
 }
 
-void cbAcceleration(const int index, const void* val, const byte valType)
+
+
+//----------------main menu custom print--------------------------------
+
+//oled->setCursorXY(MENU_PARAMS_LEFT_OFFSET, _text_y);
+//(const int index, const void* val, const byte valType);
+
+inline void customLeftPadding(const int& item_index)
 {
-  
+  oled.setCursorXY(MENU_PARAMS_LEFT_OFFSET, item_index);
+}
+
+void prMicrostepResolution(const int index, const void* val, const byte valType)
+{
+  customLeftPadding(index);
+  oled.print(GetResolutionStr(currentSettings.getMicrostepResolution()));
+}
+
+void prSelectDriver(const int index, const void* val, const byte valType)
+{
+  customLeftPadding(index);
+  oled.print(GetDriverStr(currentSettings.getDriverType()));
+}
+
+//menu func
+
+void sensorCheck()
+{
+  sensor.tick(); //проверка сенсора
+  int currTick = millis();
+  if ((sensor.isClick() || sensor.isHold()) && 
+      (currTick - prevSensMillis) < TIME_BETWEEN_SENSORE_USES)
+  {
+    prevSensMillis = currTick;
+    Extrude();
+  }
+}
+
+template<typename OledMenu>
+bool MenuEncLoopInt(OledMenu& menu)
+{
+  if(enc1.isClick())
+  {
+    menu.toggleChangeSelected();
+  }
+  else if (enc1.isLeft())
+  {
+    menu.selectPrev();
+  }
+  else if (enc1.isRight())
+  {
+    menu.selectNext();
+  }
+  else // больше енкодеру делать нечего
+  {
+    return false;
+  }
+  return true;
 }
 
 
+static_assert(EEPROM_MODE == EEPROM_REGULAR_START ||
+              EEPROM_MODE == EEPROM_FIRST_START ||
+              EEPROM_MODE == EEPROM_AUTO_START, "EEPROM_MODE invalid value");
+
+//init func
+void init_EEPROM()
+{
+  #if EEPROM_MODE == EEPROM_REGULAR_START
+  lastEEEPROM_elem = EEPROM.get<int>((EEPROM.begin() + DEAD_EEPROM_CELL_OFFSET), lastEEEPROM_elem);
+
+  #elif EEPROM_MODE == EEPROM_AUTO_START
+  uint64_t tmp;
+  EEPROM.get<uint64_t>((EEPROM.begin() + DEAD_EEPROM_CELL_OFFSET), tmp);
+  if(tmp == 0xFFFFFFFFFFFFFFFF)
+    for(int i = EEPROM.begin()+ DEAD_EEPROM_CELL_OFFSET; i < EEPROM_OFFEST_BYTE_FOR_NUMERATION_SAVES; ++i)
+      EEPROM.update(i,0);
+  lastEEEPROM_elem = EEPROM.get<int>((EEPROM.begin() + DEAD_EEPROM_CELL_OFFSET), lastEEEPROM_elem);
+
+  #elif EEPROM_MODE == EEPROM_FIRST_START
+  for(int i = EEPROM.begin()+ DEAD_EEPROM_CELL_OFFSET; i < EEPROM_OFFEST_BYTE_FOR_NUMERATION_SAVES; ++i)
+    EEPROM.update(i,0);
+  lastEEEPROM_elem = EEPROM.get<int>((EEPROM.begin() + DEAD_EEPROM_CELL_OFFSET), lastEEEPROM_elem);
+  #endif
+}
+
 void init_main_menu(Settings* settings)
 {
+  main_menu.onPrintOverride(nullptr);
+  main_menu.onChange(nullptr);
   main_menu.addItem(PSTR("Turn on Sensor:"), &isTurnOnSensor); //0
-  main_menu.addItem(PSTR("Extrude")); //1
-  main_menu.addItem(PSTR("Retract"));//2
 
+  main_menu.onPrintOverride(nullptr);
+  main_menu.onChange(cbExtrudeOrRetract);
   main_menu.addItem(
-    PSTR("Buffer Amount"),  //3  количество выдавливаемого пластика
+    PSTR("Extrude/Retract:"),
+    GM_N_INT(1),
+    &currentExtrude,
+    GM_N_INT(INT16_MIN),
+    GM_N_INT(INT16_MAX)); //1
+
+  main_menu.onPrintOverride(nullptr);
+  main_menu.onChange(nullptr);
+  main_menu.addItem(
+    PSTR("Buffer Amount:"),  //2  количество выдавливаемого пластика за срабатывание сенсора
     GM_N_INT(BUFFER_INC), 
     &(settings->buff_amount), 
     GM_N_INT(BUFFER_MIN), 
     GM_N_INT(BUFFER_MAX));
 
+  main_menu.onPrintOverride(prMicrostepResolution);
+  main_menu.onChange(nullptr);
   main_menu.addItem(
-  PSTR("Microstep Resolution"), //4 
+  PSTR("Microstep:"), //3 
   GM_N_INT(MICROSTEP_RESOLUTION_INC), 
   &(settings->microstep_resolution),
   GM_N_INT(MICROSTEP_RESOLUTION_MIN), 
   GM_N_INT(MICROSTEP_RESOLUTION_MAX));
 
+  main_menu.onPrintOverride(prSelectDriver);
+  main_menu.onChange(nullptr);
   main_menu.addItem(
-  PSTR("Select Driver"), //5
+  PSTR("Driver:"), //4
   GM_N_INT(DRIVER_INC), 
   &(settings->driver_type),
   GM_N_INT(DRIVER_MIN), 
   GM_N_INT(DRIVER_MAX));
 
-  main_menu.addItem(PSTR("Stepper Settings")); //6
-  main_menu.addItem(PSTR("Save Preset"));     //7
-  //char* test_str = "Ttest text";
-  //main_menu.addItem(test_str);
-  main_menu.addItem(PSTR("Select Preset"));  //8
+  main_menu.onPrintOverride(nullptr);
+  main_menu.onChange(cbStepperSettings, true);
+  main_menu.addItem(PSTR("Stepper Settings")); //5
+
+  main_menu.onPrintOverride(nullptr);
+  main_menu.onChange(cbSavePreset, true);
+  main_menu.addItem(PSTR("Save Preset"));     //6
+
+  main_menu.onPrintOverride(nullptr);
+  main_menu.onChange(cbSelectPreset, true);
+  main_menu.addItem(PSTR("Select Preset"));  //7
   
   main_menu.showMenu(true);
 }
 
-
-template<uint16_t _MS_SIZE, typename TGyverOLED >
-void init_stepper_menu(OledMenu<_MS_SIZE, TGyverOLED>* stepper_menu, StepperSettings* stepper_settings)
+void init_stepper_menu(StepperSettings* stepper_settings)
 {
-  stepper_menu->addItem(PSTR("BACK <-- "));
-  stepper_menu->addItem(PSTR("Enable Mod"), &(stepper_settings->enable_mod));
-    stepper_menu->addItem(
+  stepper_menu.onPrintOverride(nullptr);
+  stepper_menu.onChange(cbBACK, true);
+  stepper_menu.addItem(PSTR("BACK <-- "));
+
+  stepper_menu.onPrintOverride(nullptr);
+  stepper_menu.onChange(nullptr);
+  stepper_menu.addItem(PSTR("Enable Mod"), &(stepper_settings->enable_mod));
+    stepper_menu.addItem(
     PSTR("Step per mm"),  //2  соотношение шага к милиметражу выдавливаемого пластика
     GM_N_INT(STEP_PER_MM_SETUP_INC), 
     &(stepper_settings->step_per_mm), 
     GM_N_INT(STEP_PER_MM_SETUP_MIN), 
     GM_N_INT(STEP_PER_MM_SETUP_MAX));
-        stepper_menu->addItem(
+
+  stepper_menu.onPrintOverride(nullptr);
+  stepper_menu.onChange(nullptr);
+  stepper_menu.addItem(
     PSTR("Speed"),        //3  скорость выдавливаемого пластика
     GM_N_INT(STEP_SPEED_INC), 
     &(stepper_settings->step_per_mm), 
     GM_N_INT(STEP_SPEED_MIN), 
     GM_N_INT(STEP_SPEED_MAX));
-        stepper_menu->addItem(
-        PSTR("Speed"),    //4  ускорение скорости выдавливаемого пластика
+  
+  stepper_menu.onPrintOverride(nullptr);
+  stepper_menu.onChange(nullptr);
+  stepper_menu.addItem(
+        PSTR("Acceleration"),    //4  ускорение скорости выдавливаемого пластика
     GM_N_INT(STEP_ACCELERATION_INC), 
     &(stepper_settings->step_per_mm), 
     GM_N_INT(STEP_ACCELERATION_MIN), 
-    GM_N_INT(STEP_ACCELERATION_MAX));
-  stepper_menu->addItem(PSTR("Step per mm"));
-  stepper_menu->addItem(PSTR("Speed"));
-  stepper_menu->addItem(PSTR("Acceleration"));
-  
-  //my_menu->addItem(PSTR("Microstep Resolution"), MICROSTEP_RESOLUTION_INC, settings.); 
+    GM_N_INT(STEP_ACCELERATION_MAX));   
 }
 
-//  typedef void (*cbOnChange)(const int index, const void* val, const byte valType);
-// boolean onItemPrintOverride(const int index, const void* val, const byte valType) {
-//   if (index == 3) //micro step
-//   {
-//     const char* str = GetResolutionStr(*(MicrostepResolution*)(val));
-//     char printable[strlen(str) + 1];
-//     strcpy(printable, str);
-//     oled.print(printable);
-//   } 
-//   else if (index == 4) //driver
-//   {
-//
-//   }
-//
-//   // возвращаем всегда `false`, если мы не собираемся для других пунктов меню принтить значение
-//   return false;
-// }
 
 void setup() {
   oled.init();
@@ -461,36 +595,31 @@ void setup() {
   sensor.setType(HIGH_PULL);
   sensor.setDirection(NORM);
 
-  setDefaultSettings();
-  init_main_menu(&currentSettings);
 
+  setDefaultSettings();
+  init_EEPROM();
+  init_main_menu(&currentSettings);
+  init_stepper_menu(&currentStepperSettings);
 }
 
-
-
 void loop() {
-  enc1.tick();
-  sensor.tick();
-  //main_menu.toggleChangeSelected();
-  if(enc1.isPress() || enc1.isTurn())
+  while (currentMenuType == MenuType::MainMenu)
   {
-    if(enc1.isClick())
-    {
-      main_menu.toggleChangeSelected();
-      Serial.print("text");
-    }
-    else
-    {
-      if(enc1.isLeft())
-        main_menu.selectPrev();
-      else if(enc1.isRight())
-        main_menu.selectNext();
-    }
-    
-    main_menu.refresh();  //в конце любого действия после нажатия на энкодер, апдейт графики
-  } 
-  else if (sensor.isPress())
-  {
-    //выдача пластика
+    enc1.tick();
+    if(!MenuEncLoopInt(main_menu))
+      sensorCheck();
   }
+  
+  while (currentMenuType == MenuType::StepperMenu)
+  {
+    enc1.tick();
+    if(!MenuEncLoopInt(stepper_menu))
+      sensorCheck();
+  }
+
+  while (currentMenuType == MenuType::SaveSelectionCustomMenu)
+  {
+    /* code */
+  }
+  
 }
