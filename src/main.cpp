@@ -1,7 +1,7 @@
 
-// #define MENU_SELECTED_H 10 // высота элемента меню
+//#define MENU_SELECTED_H 20 // высота элемента меню
 // #define MENU_PARAMS_LEFT_OFFSET 92 // смещение вправо для рендеринга значений
-// #define MENU_PAGE_ITEMS_COUNT 6 // Количесвто элементов меню на одной странице
+//#define MENU_PAGE_ITEMS_COUNT 6 // Количесвто элементов меню на одной странице
 // #define MENU_FAST_K 4 // коэффициент для ускоренного приращения (см. isFast ниже)
 
 
@@ -72,12 +72,12 @@
 #include "GyverOLEDMenu.h"
 
 
-#define ENC_DEBOUNCE 80         // установка времени антидребезга (по умолчанию 80 мс)
-#define ENC_HOLD_TIMEOUT 300    // установка таймаута удержания (по умолчанию 300 мс)
-#define ENC_CLICK_TIMEOUT 500   // установка таймаута между кликами (по умолчанию 500 мс)	
-#define ENC_STEP_TIMEOUT 400    // установка таймаута между инкрементами (по умолчанию 400 мс)	
-#define ENC_TYPE HIGH_PULL      // установка типа кнопки (HIGH_PULL - подтянута к питанию, LOW_PULL - к gnd)	
-#define ENC_DIRECTION NORM_OPEN // установка направления (разомкнута/замкнута по умолчанию - NORM_OPEN, NORM_CLOSE)	
+// #define ENC_DEBOUNCE 80         // установка времени антидребезга (по умолчанию 80 мс)
+// #define ENC_HOLD_TIMEOUT 300    // установка таймаута удержания (по умолчанию 300 мс)
+// #define ENC_CLICK_TIMEOUT 500   // установка таймаута между кликами (по умолчанию 500 мс)	
+// #define ENC_STEP_TIMEOUT 400    // установка таймаута между инкрементами (по умолчанию 400 мс)	
+// #define ENC_TYPE HIGH_PULL      // установка типа кнопки (HIGH_PULL - подтянута к питанию, LOW_PULL - к gnd)	
+// #define ENC_DIRECTION NORM_OPEN // установка направления (разомкнута/замкнута по умолчанию - NORM_OPEN, NORM_CLOSE)	
 
 //void setDebounce(uint16_t debounce);				  // установка времени антидребезга (по умолчанию 80 мс)
 //void setTimeout(uint16_t new_timeout);				// установка таймаута удержания (по умолчанию 300 мс)
@@ -94,9 +94,9 @@
 
 GButton sensor(SENSOR_PIN);
 Encoder enc1(CLK, DT, SW);
-GyverOLED<SSH1106_128x64, OLED_BUFFER> oled;
-OledMenu<8, GyverOLED<SSH1106_128x64, OLED_BUFFER>> main_menu(&oled);
-OledMenu<5, GyverOLED<SSH1106_128x64, OLED_BUFFER>> menu_stepper(&oled);
+GyverOLED<SSD1306_128x64, OLED_BUFFER> oled(0x3C);
+OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>> main_menu(&oled);
+//OledMenu<5, GyverOLED<SSH1106_128x64, OLED_BUFFER>> menu_stepper(&oled);
 GStepper<STEPPER2WIRE> Motor1(steps, step, dirrr, en);
 
 
@@ -447,20 +447,23 @@ void init_stepper_menu(OledMenu<_MS_SIZE, TGyverOLED>* stepper_menu, StepperSett
 
 void setup() {
   oled.init();
+  Wire.setClock(400000L);
   oled.clear();
   oled.update();
   oled.setContrast(127);
   oled.setPower(true);
-  enc1.setType(TYPE1);
+  enc1.setType(TYPE2);
+  enc1.setDirection(REVERSE);
 
   sensor.setDebounce(50);
   sensor.setTimeout(300);
   sensor.setClickTimeout(300);
   sensor.setType(HIGH_PULL);
-  sensor.setDirection(NORM_OPEN);
+  sensor.setDirection(NORM);
 
   setDefaultSettings();
   init_main_menu(&currentSettings);
+
 }
 
 
@@ -468,7 +471,7 @@ void setup() {
 void loop() {
   enc1.tick();
   sensor.tick();
-  main_menu.toggleChangeSelected();
+  //main_menu.toggleChangeSelected();
   if(enc1.isPress() || enc1.isTurn())
   {
     if(enc1.isClick())
