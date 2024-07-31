@@ -1,6 +1,6 @@
 
 //#define MENU_SELECTED_H 20 // высота элемента меню
-// #define MENU_PARAMS_LEFT_OFFSET 92 // смещение вправо для рендеринга значений
+#define MENU_PARAMS_LEFT_OFFSET 64 // смещение вправо для рендеринга значений
 //#define MENU_PAGE_ITEMS_COUNT 6 // Количесвто элементов меню на одной странице
 // #define MENU_FAST_K 4 // коэффициент для ускоренного приращения (см. isFast ниже)
 
@@ -199,7 +199,7 @@ enum class MenuType
 GButton sensor(SENSOR_PIN);
 Encoder enc1(CLK, DT, SW);
 GyverOLED<SSD1306_128x64, OLED_BUFFER> oled(0x3C);
-OledMenu<9, GyverOLED<SSD1306_128x64, OLED_BUFFER>> main_menu(&oled);
+OledMenu<8, GyverOLED<SSD1306_128x64, OLED_BUFFER>> main_menu(&oled);
 OledMenu<5, GyverOLED<SSD1306_128x64, OLED_BUFFER>> stepper_menu(&oled);
 GStepper<STEPPER2WIRE> Motor1(steps, step, dirrr, en);
 
@@ -227,7 +227,7 @@ bool settingsChanged = false;
 int lastEEEPROM_elem = 0;
 int currEEEPROM_elem = 0;
 
-MenuType currentMenuType = MenuType::None;
+MenuType currentMenuType = MenuType::MainMenu;
 
 
 MicrostepResolution DriverMaxResolution(const DriverType& driver)
@@ -266,33 +266,33 @@ constexpr const int GetResolution(const MicrostepResolution& resolution)
 
 const char* GetResolutionStr(const MicrostepResolution& resolution)
 {
-  return  (resolution == MicrostepResolution::StepFull) ? PSTR("Full Step") :
-          (resolution == MicrostepResolution::Step1_2)  ? PSTR("Step 1/2") :
-          (resolution == MicrostepResolution::Step1_4)  ? PSTR("Step 1/4") :
-          (resolution == MicrostepResolution::Step1_8)  ? PSTR("Step 1/8") :
-          (resolution == MicrostepResolution::Step1_16) ? PSTR("Step 1/16") :
-          (resolution == MicrostepResolution::Step1_32) ? PSTR("Step 1/32") :
-          (resolution == MicrostepResolution::Step1_64) ? PSTR("Step 1/64") :
-          (resolution == MicrostepResolution::Step1_128)? PSTR("Step 1/128") :
-          (resolution == MicrostepResolution::Step1_256)? PSTR("Step 1/256") :
-                                                          PSTR("Unknown");
+  return  (resolution == MicrostepResolution::StepFull) ? "Full Step" :
+          (resolution == MicrostepResolution::Step1_2)  ? "Step 1/2" :
+          (resolution == MicrostepResolution::Step1_4)  ? "Step 1/4" :
+          (resolution == MicrostepResolution::Step1_8)  ? "Step 1/8" :
+          (resolution == MicrostepResolution::Step1_16) ? "Step 1/16" :
+          (resolution == MicrostepResolution::Step1_32) ? "Step 1/32" :
+          (resolution == MicrostepResolution::Step1_64) ? "Step 1/64" :
+          (resolution == MicrostepResolution::Step1_128)? "Step 1/128" :
+          (resolution == MicrostepResolution::Step1_256)? "Step 1/256" :
+                                                          "Unknown";
 }
 
 const char* GetDriverStr(const DriverType& driver)
 {
-  return  (driver == DriverType::a4988)     ? PSTR("a4988") :
-          (driver == DriverType::DRV8825)   ? PSTR("DRV8825") :
-          (driver == DriverType::S6609)     ? PSTR("S6609") :
-          (driver == DriverType::TMC21005V) ? PSTR("TMC21005V") :
-          (driver == DriverType::TMC2100)   ? PSTR("TMC2100") :
-          (driver == DriverType::TMC2130)   ? PSTR("TMC2130") :
-          (driver == DriverType::TMC2208)   ? PSTR("TMC2208") :
-          (driver == DriverType::TMC2209)   ? PSTR("TMC2209") :
-          (driver == DriverType::TMC2225)   ? PSTR("TMC2225") :
-          (driver == DriverType::TMC2226)   ? PSTR("TMC2226") :
-          (driver == DriverType::TMC5160)   ? PSTR("TMC5160") :
-          (driver == DriverType::TMC5161)   ? PSTR("TMC5161") :
-                                              PSTR("Unknown");
+  return  (driver == DriverType::a4988)     ? "a4988" :
+          (driver == DriverType::DRV8825)   ? "DRV8825" :
+          (driver == DriverType::S6609)     ? "S6609" :
+          (driver == DriverType::TMC21005V) ? "TMC21005V" :
+          (driver == DriverType::TMC2100)   ? "TMC2100" :
+          (driver == DriverType::TMC2130)   ? "TMC2130" :
+          (driver == DriverType::TMC2208)   ? "TMC2208" :
+          (driver == DriverType::TMC2209)   ? "TMC2209" :
+          (driver == DriverType::TMC2225)   ? "TMC2225" :
+          (driver == DriverType::TMC2226)   ? "TMC2226" :
+          (driver == DriverType::TMC5160)   ? "TMC5160" :
+          (driver == DriverType::TMC5161)   ? "TMC5161" :
+                                              "Unknown";
 }
 
 inline void setDefaultSettings() 
@@ -411,6 +411,7 @@ void cbSpeed(const int index, const void* val, const byte valType)
 
 inline void customLeftPadding(const int& item_index)
 {
+  // oled.clear(MENU_PARAMS_LEFT_OFFSET + 8, item_index * MENU_SELECTED_H + MENU_ITEM_PADDING_TOP, 127, item_index * MENU_SELECTED_H + MENU_ITEM_PADDING_TOP + MENU_SELECTED_H);
   #ifdef CUSTOM_MENU_LEFT_OFFSET
   oled.setCursorXY(CUSTOM_MENU_LEFT_OFFSET, item_index * MENU_SELECTED_H + MENU_ITEM_PADDING_TOP);
   #else
@@ -420,8 +421,10 @@ inline void customLeftPadding(const int& item_index)
 
 bool prExtrudeOrRetract(const int index, const void* val, const byte valType)
 {
+  // oled.clear(MENU_PARAMS_LEFT_OFFSET + 8, index * MENU_SELECTED_H + MENU_ITEM_PADDING_TOP, 127, index * MENU_SELECTED_H + MENU_ITEM_PADDING_TOP + MENU_SELECTED_H);
   oled.setCursorXY(MENU_PARAMS_LEFT_OFFSET + 8, index * MENU_SELECTED_H + MENU_ITEM_PADDING_TOP);
   oled.print(*static_cast<const int*>(val));
+  return true;
 }
 
 
@@ -497,12 +500,12 @@ void init_main_menu(Settings* settings)
 {
   main_menu.onPrintOverride(nullptr);
   main_menu.onChange(nullptr);
-  main_menu.addItem(PSTR("Turn on Sensor:"), &isTurnOnSensor); //0
+  main_menu.addItem(PSTR("Sensor:"), &isTurnOnSensor); //0
 
   main_menu.onPrintOverride(nullptr);
   main_menu.onChange(cbExtrudeOrRetract);
   main_menu.addItem(
-    PSTR("Extrude/Retract:"),
+    PSTR("Extrude:"),
     GM_N_INT(1),
     &currentExtrude,
     GM_N_INT(INT16_MIN),
@@ -511,7 +514,7 @@ void init_main_menu(Settings* settings)
   main_menu.onPrintOverride(nullptr);
   main_menu.onChange(nullptr);
   main_menu.addItem(
-    PSTR("Buffer Amount:"),  //2  количество выдавливаемого пластика за срабатывание сенсора
+    PSTR("BUFF MM:"),  //2  количество выдавливаемого пластика за срабатывание сенсора
     GM_N_INT(BUFFER_INC), 
     &(settings->buff_amount), 
     GM_N_INT(BUFFER_MIN), 
@@ -558,9 +561,9 @@ void init_stepper_menu(StepperSettings* stepper_settings)
 
   stepper_menu.onPrintOverride(nullptr);
   stepper_menu.onChange(nullptr);
-  stepper_menu.addItem(PSTR("Enable Mod"), &(stepper_settings->enable_mod));
+  stepper_menu.addItem(PSTR("Enabled:"), &(stepper_settings->enable_mod));
     stepper_menu.addItem(
-    PSTR("Step per mm"),  //2  соотношение шага к милиметражу выдавливаемого пластика
+    PSTR("Steps/mm:"),  //2  соотношение шага к милиметражу выдавливаемого пластика
     GM_N_INT(STEP_PER_MM_SETUP_INC), 
     &(stepper_settings->step_per_mm), 
     GM_N_INT(STEP_PER_MM_SETUP_MIN), 
@@ -569,18 +572,18 @@ void init_stepper_menu(StepperSettings* stepper_settings)
   stepper_menu.onPrintOverride(nullptr);
   stepper_menu.onChange(nullptr);
   stepper_menu.addItem(
-    PSTR("Speed"),        //3  скорость выдавливаемого пластика
+    PSTR("Speed:"),        //3  скорость выдавливаемого пластика
     GM_N_INT(STEP_SPEED_INC), 
-    &(stepper_settings->step_per_mm), 
+    &(stepper_settings->speed), 
     GM_N_INT(STEP_SPEED_MIN), 
     GM_N_INT(STEP_SPEED_MAX));
   
   stepper_menu.onPrintOverride(nullptr);
   stepper_menu.onChange(nullptr);
   stepper_menu.addItem(
-        PSTR("Acceleration"),    //4  ускорение скорости выдавливаемого пластика
+        PSTR("Accel:"),    //4  ускорение скорости выдавливаемого пластика
     GM_N_INT(STEP_ACCELERATION_INC), 
-    &(stepper_settings->step_per_mm), 
+    &(stepper_settings->acceleration), 
     GM_N_INT(STEP_ACCELERATION_MIN), 
     GM_N_INT(STEP_ACCELERATION_MAX));   
 }
