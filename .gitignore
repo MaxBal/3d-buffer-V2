@@ -16,3 +16,7 @@
 platformio.ini
 platformio.ini
 platformio.ini
+.vscode/launch.json
+.vscode/c_cpp_properties.json
+platformio.ini
+.pio/build/project.checksum
